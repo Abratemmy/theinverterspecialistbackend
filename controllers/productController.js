@@ -52,7 +52,6 @@ exports.getProducts = async (req, res) => {
 
 };
 
-
 // ==============================
 // Get Product By Slug
 // ==============================

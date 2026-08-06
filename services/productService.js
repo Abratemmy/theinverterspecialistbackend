@@ -11,7 +11,7 @@ const {
     ProductSpecification
 } = require("../models");
 
-// =============================
+// =============================  
 // Create a product
 // =============================
 
@@ -162,7 +162,6 @@ exports.createProduct = async (body) => {
 // =============================
 
 exports.getProducts = async (query) => {
-
     const {
         page = 1,
         limit = 10,
@@ -172,43 +171,76 @@ exports.getProducts = async (query) => {
         featured,
         minPrice,
         maxPrice,
-        sort = "newest"
+        sort = "newest",
     } = query;
 
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+
     const where = {
-        status: "active"
+        status: "active",
     };
 
-    // Search by product name
+    // ==========================
+    // Search
+    // ==========================
     if (search) {
-        where.name = {
-            [Op.like]: `%${search}%`
-        };
+        where[Op.or] = [
+            {
+                name: {
+                    [Op.like]: `%${search}%`,
+                },
+            },
+            {
+                short_description: {
+                    [Op.like]: `%${search}%`,
+                },
+            },
+        ];
     }
 
-    // Featured products
-    if (featured === "true") {
-        where.featured = true;
+    // ==========================
+    // Category Filter
+    // ==========================
+    if (category) {
+        where.category_id = category;
     }
 
-    // Price filters
+    // ==========================
+    // Brand Filter
+    // ==========================
+    if (brand) {
+        where.brand_id = brand;
+    }
+
+    // ==========================
+    // Featured Filter
+    // ==========================
+    if (featured !== undefined) {
+        where.featured = featured === "true";
+    }
+
+    // ==========================
+    // Price Filter
+    // ==========================
     if (minPrice || maxPrice) {
-
         where.price = {};
 
         if (minPrice) {
-            where.price[Op.gte] = minPrice;
+            where.price[Op.gte] = Number(minPrice);
         }
 
         if (maxPrice) {
-            where.price[Op.lte] = maxPrice;
+            where.price[Op.lte] = Number(maxPrice);
         }
     }
 
+    // ==========================
+    // Sorting
+    // ==========================
     let order = [["created_at", "DESC"]];
 
     switch (sort) {
-
         case "oldest":
             order = [["created_at", "ASC"]];
             break;
@@ -225,24 +257,33 @@ exports.getProducts = async (query) => {
             order = [["name", "ASC"]];
             break;
 
+        case "featured":
+            order = [
+                ["featured", "DESC"],
+                ["created_at", "DESC"],
+            ];
+            break;
+
         default:
             order = [["created_at", "DESC"]];
     }
 
+    // ==========================
+    // Fetch Products
+    // ==========================
     const result = await Product.findAndCountAll({
-
         where,
 
         include: [
             {
                 model: Category,
                 as: "category",
-                attributes: ["id", "name", "slug"]
+                attributes: ["id", "name", "slug"],
             },
             {
                 model: Brand,
                 as: "brand",
-                attributes: ["id", "name", "slug"]
+                attributes: ["id", "name", "slug"],
             },
             {
                 model: ProductMedia,
@@ -254,10 +295,10 @@ exports.getProducts = async (query) => {
                     "thumbnail_url",
                     "alt_text",
                     "is_primary",
-                    "display_order"
+                    "display_order",
                 ],
                 separate: true,
-                order: [["display_order", "ASC"]]
+                order: [["display_order", "ASC"]],
             },
             {
                 model: ProductSpecification,
@@ -266,35 +307,73 @@ exports.getProducts = async (query) => {
                     "id",
                     "specification_name",
                     "specification_value",
-                    "display_order"
+                    "display_order",
                 ],
                 separate: true,
-                order: [["display_order", "ASC"]]
-            }
+                order: [["display_order", "ASC"]],
+            },
         ],
 
-        limit: Number(limit),
+        limit: limitNumber,
 
-        offset: (page - 1) * limit,
+        offset: (pageNumber - 1) * limitNumber,
 
-        order
+        order,
+    });
 
+    // ==========================
+    // Transform Products
+    // ==========================
+    const products = result.rows.map((product) => {
+        const json = product.toJSON();
+
+        // Primary Image
+        const primaryMedia = json.media.find(
+            (item) => item.is_primary && item.media_type === "image"
+        );
+
+        json.primaryImage = primaryMedia
+            ? primaryMedia.media_url
+            : null;
+
+        // Stock Status
+        if (json.quantity <= 0) {
+            json.stockStatus = "out_of_stock";
+        } else if (json.quantity <= 5) {
+            json.stockStatus = "low_stock";
+        } else {
+            json.stockStatus = "in_stock";
+        }
+
+        // Discount Percentage
+        const price = Number(json.price);
+        const discountPrice = Number(json.discount_price);
+
+        if (
+            discountPrice &&
+            discountPrice > 0 &&
+            discountPrice < price
+        ) {
+            json.discountPercentage = Math.round(
+                ((price - discountPrice) / price) * 100
+            );
+        } else {
+            json.discountPercentage = 0;
+        }
+
+        return json;
     });
 
     return {
-
         total: result.count,
 
-        currentPage: Number(page),
+        currentPage: pageNumber,
 
-        totalPages: Math.ceil(result.count / limit),
+        totalPages: Math.ceil(result.count / limitNumber),
 
-        products: result.rows
-
+        products,
     };
-
-};
-
+};     
 
 // =============================
 // Get Product By Slug
