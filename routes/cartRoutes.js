@@ -6,6 +6,9 @@ const authenticate = require("../middleware/authMiddleware");
 
 const validate = require("../middleware/validate");
 
+const optionalAuth =
+    require("../middleware/optionalAuthMiddleware");
+
 const cartController = require("../controllers/cartController");
 
 const {
@@ -16,14 +19,26 @@ const {
 // Get current cart
 router.get(
     "/",
-    authenticate,
+    optionalAuth,
     cartController.getCart
 );
+
+// ============================================================
+// MERGE GUEST CART
+// Logged-in users only
+// ============================================================
+
+router.post(
+    "/merge",
+    authenticate,
+    cartController.mergeGuestCart
+);
+
 
 // Add item
 router.post(
     "/",
-    authenticate,
+    optionalAuth,
     addToCartValidator,
     validate,
     cartController.addToCart
@@ -32,7 +47,7 @@ router.post(
 // Update quantity
 router.put(
     "/:itemId",
-    authenticate,
+    optionalAuth,
     updateCartValidator,
     validate,
     cartController.updateCartItem
@@ -41,14 +56,14 @@ router.put(
 // Remove item
 router.delete(
     "/:itemId",
-    authenticate,
+    optionalAuth,
     cartController.removeCartItem
 );
 
-// Clear cart
+
 router.delete(
     "/",
-    authenticate,
+    optionalAuth,
     cartController.clearCart
 );
 

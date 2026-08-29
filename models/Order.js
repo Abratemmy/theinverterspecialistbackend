@@ -11,7 +11,7 @@ const Order = sequelize.define(
         },
 
         order_number: {
-            type: DataTypes.STRING(50),
+            type: DataTypes.STRING(100),
             allowNull: false,
             unique: true
         },
@@ -20,39 +20,61 @@ const Order = sequelize.define(
             type: DataTypes.INTEGER,
             allowNull: false
         },
-        
+
         cart_id: {
             type: DataTypes.INTEGER,
             allowNull: false
         },
 
+        // ====================================================
+        // FULFILLMENT METHOD
+        // ====================================================
+
+        fulfillment_method: {
+            type: DataTypes.ENUM(
+                "shipping",
+                "pickup"
+            ),
+            allowNull: false,
+            defaultValue: "shipping"
+        },
+
+        // ====================================================
+        // SHIPPING ADDRESS
+        // ====================================================
+
         shipping_address_id: {
             type: DataTypes.INTEGER,
-            allowNull: false
+            allowNull: true
         },
 
         subtotal: {
-            type: DataTypes.DECIMAL(12,2),
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
             defaultValue: 0
         },
 
         shipping_fee: {
-            type: DataTypes.DECIMAL(12,2),
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
             defaultValue: 0
         },
 
         discount: {
-            type: DataTypes.DECIMAL(12,2),
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
             defaultValue: 0
         },
 
         tax: {
-            type: DataTypes.DECIMAL(12,2),
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
             defaultValue: 0
         },
 
         total_amount: {
-            type: DataTypes.DECIMAL(12,2),
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
             defaultValue: 0
         },
 
@@ -80,9 +102,9 @@ const Order = sequelize.define(
         },
 
         notes: {
-            type: DataTypes.TEXT
+            type: DataTypes.TEXT,
+            allowNull: true
         }
-
     },
     {
         tableName: "orders",

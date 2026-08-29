@@ -9,7 +9,8 @@ const {
     resetPassword,
     changePassword,
     getCurrentUser,
-    checkAuth
+    checkAuth,
+    updateProfile
 } = require("../controllers/authController");
 const validate = require("../middleware/validate");
 
@@ -18,6 +19,9 @@ const {
     loginValidator,
     forgotPasswordValidator
 } = require("../validators/authValidator");
+
+const upload =
+    require("../middleware/uploadMiddleware");
  
 // register link
 router.post(
@@ -49,5 +53,12 @@ router.post("/change-password", changePassword);
 
 router.get("/me", authenticate, getCurrentUser);
 router.get("/check", authenticate, checkAuth);
+
+router.put(
+    "/profile",
+    authenticate,
+    upload.single("profile_image"),
+    updateProfile
+);
 
 module.exports = router;

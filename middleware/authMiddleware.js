@@ -3,14 +3,9 @@ const User = require("../models/User");
 
 const protect = async (req, res, next) => {
 
-     console.log("===== AUTH MIDDLEWARE =====");
-    console.log("Cookies:", req.cookies);
-
     try {
 
         const token = req.cookies.token;
-
-        console.log("Token:", token);
 
         if (!token) {
             return res.status(401).json({
@@ -24,7 +19,6 @@ const protect = async (req, res, next) => {
             process.env.JWT_SECRET
         );
 
-        console.log("Decoded:", decoded);
 
         const user = await User.findByPk(decoded.id, {
             attributes: {

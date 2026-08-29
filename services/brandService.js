@@ -1,3 +1,4 @@
+const { Product } = require("../models");
 const Brand = require("../models/Brand");
 const slugify = require("slugify");
 
@@ -78,7 +79,7 @@ exports.updateBrand = async (id, data) => {
     return brand;
 };
 
-// Soft Delete Brand
+
 exports.deleteBrand = async (id) => {
 
     const brand = await Brand.findByPk(id);
@@ -87,9 +88,23 @@ exports.deleteBrand = async (id) => {
         throw new Error("Brand not found.");
     }
 
-    brand.status = "inactive";
+    const productCount = await Product.count({
+        where: {
+            brand_id: id
+        }
+    });
 
-    await brand.save();
+    if (productCount > 0) {
+
+        throw new Error(
+            `!ohpps, You cannot delete this ${brand.name}. ` +
+            `${productCount} product${productCount > 1 ? "s are" : " is"} ` +
+            `associated with this brand.`
+        );
+
+    }
+
+    await brand.destroy();
 
     return true;
 };

@@ -10,9 +10,19 @@ const Cart = sequelize.define(
             primaryKey: true
         },
 
+        // Logged-in user's ID.
+        // NULL when this is a guest cart.
         user_id: {
             type: DataTypes.INTEGER,
-            allowNull: false
+            allowNull: true
+        },
+
+        // Unique identifier for guest carts.
+        // NULL for carts belonging to logged-in users.
+        guest_token: {
+            type: DataTypes.STRING(255),
+            allowNull: true,
+            unique: true
         },
 
         status: {

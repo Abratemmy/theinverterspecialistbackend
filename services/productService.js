@@ -157,134 +157,453 @@ exports.createProduct = async (body) => {
 
 };
 
-// =============================
-// Get All Products
-// =============================
+// ============================================================
+// GET PRODUCTS
+// ============================================================
 
-exports.getProducts = async (query) => {
+exports.getProducts = async (query = {}) => {
+
     const {
         page = 1,
-        limit = 10,
+        limit = 8,
         search,
         category,
         brand,
         featured,
         minPrice,
         maxPrice,
-        sort = "newest",
+        sort = "newest"
     } = query;
 
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
+
+    // ========================================================
+    // PAGINATION
+    // ========================================================
+
+    const currentPage =
+        Math.max(
+            Number(page) || 1,
+            1
+        );
+
+    const pageLimit =
+        Math.min(
+            Math.max(
+                Number(limit) || 8,
+                1
+            ),
+            100
+        );
+
+    const offset =
+        (currentPage - 1) * pageLimit;
+
+
+    // ========================================================
+    // WHERE
+    // ========================================================
 
     const where = {
-        status: "active",
+
+        status: "active"
+
     };
 
-    // ==========================
-    // Search
-    // ==========================
-    if (search) {
+
+    // ========================================================
+    // SEARCH
+    //
+    // Searches:
+    //
+    // Product name
+    // OR
+    // Category name
+    //
+    // Example:
+    //
+    // "inver"
+    //
+    // matches:
+    //
+    // Solar Inverter
+    // Hybrid Inverter
+    // Inverter Battery
+    // ========================================================
+
+    const searchText =
+        typeof search === "string"
+            ? search.trim()
+            : "";
+
+
+    if (searchText) {
+
         where[Op.or] = [
+
             {
                 name: {
-                    [Op.like]: `%${search}%`,
-                },
+                    [Op.like]:
+                        `%${searchText}%`
+                }
             },
+
             {
-                short_description: {
-                    [Op.like]: `%${search}%`,
-                },
-            },
+                "$category.name$": {
+                    [Op.like]:
+                        `%${searchText}%`
+                }
+            }
+
         ];
+
     }
 
-    // ==========================
-    // Category Filter
-    // ==========================
+
+    // ========================================================
+    // CATEGORY FILTER
+    // ========================================================
+
     if (category) {
-        where.category_id = category;
+
+        where.category_id =
+            Number(category);
+
     }
 
-    // ==========================
-    // Brand Filter
-    // ==========================
+
+    // ========================================================
+    // BRAND FILTER
+    // ========================================================
+
     if (brand) {
-        where.brand_id = brand;
+
+        where.brand_id =
+            Number(brand);
+
     }
 
-    // ==========================
-    // Featured Filter
-    // ==========================
-    if (featured !== undefined) {
-        where.featured = featured === "true";
+
+    // ========================================================
+    // PRICE FILTER
+    // ========================================================
+
+    if (
+        minPrice !== undefined &&
+        minPrice !== ""
+    ) {
+
+        where.price = {
+
+            ...(where.price || {}),
+
+            [Op.gte]:
+                Number(minPrice)
+
+        };
+
     }
 
-    // ==========================
-    // Price Filter
-    // ==========================
-    if (minPrice || maxPrice) {
-        where.price = {};
 
-        if (minPrice) {
-            where.price[Op.gte] = Number(minPrice);
-        }
+    if (
+        maxPrice !== undefined &&
+        maxPrice !== ""
+    ) {
 
-        if (maxPrice) {
-            where.price[Op.lte] = Number(maxPrice);
-        }
+        where.price = {
+
+            ...(where.price || {}),
+
+            [Op.lte]:
+                Number(maxPrice)
+
+        };
+
     }
 
-    // ==========================
-    // Sorting
-    // ==========================
-    let order = [["created_at", "DESC"]];
+
+    // ========================================================
+    // FEATURED
+    // ========================================================
+
+    if (
+        featured !== undefined &&
+        featured !== ""
+    ) {
+
+        where.featured =
+            featured === true ||
+            featured === "true";
+
+    }
+
+
+    // ========================================================
+    // SORT
+    // ========================================================
+
+    let order = [
+
+        [
+            "created_at",
+            "DESC"
+        ]
+
+    ];
+
 
     switch (sort) {
+
         case "oldest":
-            order = [["created_at", "ASC"]];
+
+            order = [
+
+                [
+                    "created_at",
+                    "ASC"
+                ]
+
+            ];
+
             break;
+
 
         case "price_asc":
-            order = [["price", "ASC"]];
+
+            order = [
+
+                [
+                    "price",
+                    "ASC"
+                ]
+
+            ];
+
             break;
+
 
         case "price_desc":
-            order = [["price", "DESC"]];
+
+            order = [
+
+                [
+                    "price",
+                    "DESC"
+                ]
+
+            ];
+
             break;
+
 
         case "name":
-            order = [["name", "ASC"]];
+
+            order = [
+
+                [
+                    "name",
+                    "ASC"
+                ]
+
+            ];
+
             break;
+
 
         case "featured":
+
             order = [
-                ["featured", "DESC"],
-                ["created_at", "DESC"],
+
+                [
+                    "featured",
+                    "DESC"
+                ],
+
+                [
+                    "created_at",
+                    "DESC"
+                ]
+
             ];
+
             break;
 
+
+        case "newest":
+
         default:
-            order = [["created_at", "DESC"]];
+
+            order = [
+
+                [
+                    "created_at",
+                    "DESC"
+                ]
+
+            ];
+
+            break;
+
     }
 
-    // ==========================
-    // Fetch Products
-    // ==========================
-    const result = await Product.findAndCountAll({
+
+    // ========================================================
+    // GET PRODUCTS
+    // ========================================================
+
+    const {
+        rows,
+        count
+    } = await Product.findAndCountAll({
+
         where,
+
+        include: [
+
+            // ==================================================
+            // CATEGORY
+            // ==================================================
+
+            {
+                model: Category,
+
+                as: "category",
+
+                required: false
+            },
+
+
+            // ==================================================
+            // BRAND
+            // ==================================================
+
+            {
+                model: Brand,
+
+                as: "brand",
+
+                required: false
+            },
+
+
+            // ==================================================
+            // MEDIA
+            // ==================================================
+
+            {
+                model: ProductMedia,
+
+                as: "media",
+
+                required: false,
+
+                separate: true,
+
+                order: [
+
+                    [
+                        "display_order",
+                        "ASC"
+                    ]
+
+                ]
+
+            },
+
+
+            // ==================================================
+            // SPECIFICATIONS
+            // ==================================================
+
+            {
+                model: ProductSpecification,
+
+                as: "specifications",
+
+                required: false,
+
+                separate: true,
+
+                order: [
+
+                    [
+                        "display_order",
+                        "ASC"
+                    ]
+
+                ]
+
+            }
+
+        ],
+
+        order,
+
+        limit: pageLimit,
+
+        offset,
+
+        distinct: true
+
+    });
+
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return {
+
+        products: rows,
+
+        total: count,
+
+        page: currentPage,
+
+        limit: pageLimit,
+
+        totalPages:
+            Math.ceil(
+                count / pageLimit
+            )
+
+    };
+
+};    
+
+// =============================
+// Get Product By Slug
+// =============================
+
+exports.getProductBySlug = async (slug) => {
+
+    const product = await Product.findOne({
+
+        where: {
+            slug,
+            status: "active",
+        },
 
         include: [
             {
                 model: Category,
                 as: "category",
-                attributes: ["id", "name", "slug"],
+                attributes: [
+                    "id",
+                    "name",
+                    "slug",
+                ],
             },
+
             {
                 model: Brand,
                 as: "brand",
-                attributes: ["id", "name", "slug"],
+                attributes: [
+                    "id",
+                    "name",
+                    "slug",
+                ],
             },
+
             {
                 model: ProductMedia,
                 as: "media",
@@ -298,8 +617,11 @@ exports.getProducts = async (query) => {
                     "display_order",
                 ],
                 separate: true,
-                order: [["display_order", "ASC"]],
+                order: [
+                    ["display_order", "ASC"],
+                ],
             },
+
             {
                 model: ProductSpecification,
                 as: "specifications",
@@ -310,105 +632,77 @@ exports.getProducts = async (query) => {
                     "display_order",
                 ],
                 separate: true,
-                order: [["display_order", "ASC"]],
+                order: [
+                    ["display_order", "ASC"],
+                ],
             },
         ],
-
-        limit: limitNumber,
-
-        offset: (pageNumber - 1) * limitNumber,
-
-        order,
     });
 
-    // ==========================
-    // Transform Products
-    // ==========================
-    const products = result.rows.map((product) => {
-        const json = product.toJSON();
 
-        // Primary Image
-        const primaryMedia = json.media.find(
-            (item) => item.is_primary && item.media_type === "image"
-        );
-
-        json.primaryImage = primaryMedia
-            ? primaryMedia.media_url
-            : null;
-
-        // Stock Status
-        if (json.quantity <= 0) {
-            json.stockStatus = "out_of_stock";
-        } else if (json.quantity <= 5) {
-            json.stockStatus = "low_stock";
-        } else {
-            json.stockStatus = "in_stock";
-        }
-
-        // Discount Percentage
-        const price = Number(json.price);
-        const discountPrice = Number(json.discount_price);
-
-        if (
-            discountPrice &&
-            discountPrice > 0 &&
-            discountPrice < price
-        ) {
-            json.discountPercentage = Math.round(
-                ((price - discountPrice) / price) * 100
-            );
-        } else {
-            json.discountPercentage = 0;
-        }
-
-        return json;
-    });
-
-    return {
-        total: result.count,
-
-        currentPage: pageNumber,
-
-        totalPages: Math.ceil(result.count / limitNumber),
-
-        products,
-    };
-};     
-
-// =============================
-// Get Product By Slug
-// =============================
-
-exports.getProductBySlug = async (slug) => {
-
-    const product = await Product.findOne({
-
-        where: {
-            slug,
-            status: "active"
-        },
-
-        include: [
-
-            {
-                model: Category,
-                as: "category"
-            },
-
-            {
-                model: Brand,
-                as: "brand"
-            }
-
-        ]
-
-    });
-
-    if (!product)
+    if (!product) {
         throw new Error("Product not found.");
+    }
 
-    return product;
 
+    const json = product.toJSON();
+
+
+    const primaryMedia = json.media.find(
+        (item) =>
+            item.is_primary &&
+            item.media_type === "image"
+    );
+
+
+    json.primaryImage = primaryMedia
+        ? primaryMedia.media_url
+        : null;
+
+
+    if (json.quantity <= 0) {
+
+        json.stockStatus =
+            "out_of_stock";
+
+    } else if (json.quantity <= 5) {
+
+        json.stockStatus =
+            "low_stock";
+
+    } else {
+
+        json.stockStatus =
+            "in_stock";
+    }
+
+
+    const price = Number(json.price);
+
+    const discountPrice =
+        Number(json.discount_price);
+
+
+    if (
+        discountPrice &&
+        discountPrice > 0 &&
+        discountPrice < price
+    ) {
+
+        json.discountPercentage =
+            Math.round(
+                ((price - discountPrice) /
+                    price) *
+                    100
+            );
+
+    } else {
+
+        json.discountPercentage = 0;
+    }
+
+
+    return json;
 };
 
 
@@ -416,46 +710,416 @@ exports.getProductBySlug = async (slug) => {
 // Update Product
 // =============================
 
-exports.updateProduct = async (id, data) => {
+// ============================================================
+// UPDATE PRODUCT
+// ============================================================
 
-    const product = await Product.findByPk(id);
+exports.updateProduct = async (id, body) => {
 
-    if (!product)
-        throw new Error("Product not found.");
+    const transaction =
+        await sequelize.transaction();
 
-    if (data.category_id) {
+    try {
 
-        const category = await Category.findByPk(data.category_id);
+        // ========================================================
+        // GET PRODUCT
+        // ========================================================
 
-        if (!category)
-            throw new Error("Category not found.");
+        const product =
+            await Product.findByPk(
+                id,
+                {
+                    transaction
+                }
+            );
+
+
+        if (!product) {
+
+            throw new Error(
+                "Product not found."
+            );
+
+        }
+
+
+        // ========================================================
+        // GET DATA
+        // ========================================================
+
+        const {
+            product: productData,
+            media,
+            specifications
+        } = body;
+
+
+        /*
+         * The frontend can send either:
+         *
+         * {
+         *     product: {...},
+         *     media: [...],
+         *     specifications: [...]
+         * }
+         *
+         * or just:
+         *
+         * {
+         *     name: "...",
+         *     price: ...
+         * }
+         *
+         * We support both.
+         */
+
+        const data =
+            productData || body;
+
+
+        // ========================================================
+        // CHECK CATEGORY
+        // ========================================================
+
+        if (
+            data.category_id !== undefined &&
+            data.category_id !== null
+        ) {
+
+            const category =
+                await Category.findByPk(
+                    data.category_id,
+                    {
+                        transaction
+                    }
+                );
+
+
+            if (!category) {
+
+                throw new Error(
+                    "Category not found."
+                );
+
+            }
+
+        }
+
+
+        // ========================================================
+        // CHECK BRAND
+        // ========================================================
+
+        if (
+            data.brand_id !== undefined &&
+            data.brand_id !== null
+        ) {
+
+            const brand =
+                await Brand.findByPk(
+                    data.brand_id,
+                    {
+                        transaction
+                    }
+                );
+
+
+            if (!brand) {
+
+                throw new Error(
+                    "Brand not found."
+                );
+
+            }
+
+        }
+
+
+        // ========================================================
+        // CHECK DUPLICATE PRODUCT NAME
+        // ========================================================
+
+        if (
+            data.name &&
+            data.name.trim() !== product.name
+        ) {
+
+            const existing =
+                await Product.findOne({
+
+                    where: {
+
+                        name: data.name,
+
+                        id: {
+                            [Op.ne]: id
+                        }
+
+                    },
+
+                    transaction
+
+                });
+
+
+            if (existing) {
+
+                throw new Error(
+                    "Product name already exists."
+                );
+
+            }
+
+        }
+
+
+        // ========================================================
+        // GENERATE SLUG
+        // ========================================================
+
+        if (data.name) {
+
+            data.slug =
+                slugify(
+                    data.name,
+                    {
+                        lower: true,
+                        strict: true
+                    }
+                );
+
+        }
+
+
+        // ========================================================
+        // UPDATE PRODUCT
+        // ========================================================
+
+        await product.update(
+            data,
+            {
+                transaction
+            }
+        );
+
+
+        // ========================================================
+        // UPDATE MEDIA
+        // ========================================================
+
+        /*
+         * IMPORTANT:
+         *
+         * If media is undefined:
+         *     Don't touch existing media.
+         *
+         * If media is []:
+         *     Delete all existing media.
+         *
+         * If media contains items:
+         *     Delete old media and create new ones.
+         */
+
+        if (media !== undefined) {
+
+            await ProductMedia.destroy({
+
+                where: {
+                    product_id: id
+                },
+
+                transaction
+
+            });
+
+
+            if (
+                Array.isArray(media) &&
+                media.length > 0
+            ) {
+
+                await ProductMedia.bulkCreate(
+
+                    media.map(
+                        (item, index) => ({
+
+                            product_id: id,
+
+                            media_type:
+                                item.media_type,
+
+                            media_url:
+                                item.media_url,
+
+                            thumbnail_url:
+                                item.thumbnail_url ||
+                                null,
+
+                            alt_text:
+                                item.alt_text ||
+                                null,
+
+                            is_primary:
+                                item.is_primary ||
+                                false,
+
+                            display_order:
+                                item.display_order ||
+                                index + 1
+
+                        })
+                    ),
+
+                    {
+                        transaction
+                    }
+
+                );
+
+            }
+
+        }
+
+
+        // ========================================================
+        // UPDATE SPECIFICATIONS
+        // ========================================================
+
+        /*
+         * Same behavior as media.
+         */
+
+        if (
+            specifications !== undefined
+        ) {
+
+            await ProductSpecification.destroy({
+
+                where: {
+                    product_id: id
+                },
+
+                transaction
+
+            });
+
+
+            if (
+                Array.isArray(
+                    specifications
+                ) &&
+                specifications.length > 0
+            ) {
+
+                await ProductSpecification.bulkCreate(
+
+                    specifications.map(
+                        (item, index) => ({
+
+                            product_id: id,
+
+                            specification_name:
+                                item.specification_name,
+
+                            specification_value:
+                                item.specification_value,
+
+                            display_order:
+                                item.display_order ||
+                                index + 1
+
+                        })
+                    ),
+
+                    {
+                        transaction
+                    }
+
+                );
+
+            }
+
+        }
+
+
+        // ========================================================
+        // COMMIT
+        // ========================================================
+
+        await transaction.commit();
+
+
+        // ========================================================
+        // RETURN COMPLETE PRODUCT
+        // ========================================================
+
+        return await Product.findByPk(
+
+            id,
+
+            {
+
+                include: [
+
+                    {
+                        model: Category,
+
+                        as: "category"
+                    },
+
+                    {
+                        model: Brand,
+
+                        as: "brand"
+                    },
+
+                    {
+                        model: ProductMedia,
+
+                        as: "media",
+
+                        separate: true,
+
+                        order: [
+
+                            [
+                                "display_order",
+                                "ASC"
+                            ]
+
+                        ]
+                    },
+
+                    {
+                        model: ProductSpecification,
+
+                        as: "specifications",
+
+                        separate: true,
+
+                        order: [
+
+                            [
+                                "display_order",
+                                "ASC"
+                            ]
+
+                        ]
+                    }
+
+                ]
+
+            }
+
+        );
+
+    } catch (error) {
+
+        await transaction.rollback();
+
+        throw error;
 
     }
-
-    if (data.brand_id) {
-
-        const brand = await Brand.findByPk(data.brand_id);
-
-        if (!brand)
-            throw new Error("Brand not found.");
-
-    }
-
-    if (data.name) {
-
-        data.slug = slugify(data.name, {
-
-            lower: true,
-
-            strict: true
-
-        });
-
-    }
-
-    await product.update(data);
-
-    return product;
 
 };
 
@@ -480,35 +1144,156 @@ exports.deleteProduct = async (id) => {
 
 };
 
-// =============================
-// Admin - Get Inactive Products. 
-// =============================
-exports.getInactiveProducts = async () => {
+// ============================================================
+// ADMIN - GET INACTIVE PRODUCTS
+// ============================================================
 
-    return await Product.findAll({
+// ============================================================
+// ADMIN - GET INACTIVE PRODUCTS
+// Search + Pagination
+// ============================================================
 
-        where: {
-            status: "inactive"
-        },
+exports.getInactiveProducts = async (query = {}) => {
+
+    const {
+        page = 1,
+        limit = 8,
+        search
+    } = query;
+
+
+    // ========================================================
+    // PAGINATION
+    // ========================================================
+
+    const currentPage =
+        Math.max(
+            Number(page) || 1,
+            1
+        );
+
+    const pageLimit =
+        Math.min(
+            Math.max(
+                Number(limit) || 8,
+                1
+            ),
+            100
+        );
+
+    const offset =
+        (currentPage - 1) * pageLimit;
+
+
+    // ========================================================
+    // WHERE
+    // ========================================================
+
+    const where = {
+        status: "inactive"
+    };
+
+
+    // ========================================================
+    // SEARCH
+    // ========================================================
+
+    if (
+        typeof search === "string" &&
+        search.trim()
+    ) {
+
+        where.name = {
+            [Op.like]: `%${search.trim()}%`
+        };
+
+    }
+
+
+    // ========================================================
+    // GET PRODUCTS
+    // ========================================================
+
+    const {
+        rows,
+        count
+    } = await Product.findAndCountAll({
+
+        where,
 
         include: [
+
             {
                 model: Category,
                 as: "category",
-                attributes: ["id", "name", "slug"]
+                attributes: [
+                    "id",
+                    "name",
+                    "slug"
+                ]
             },
+
             {
                 model: Brand,
                 as: "brand",
-                attributes: ["id", "name", "slug"]
+                attributes: [
+                    "id",
+                    "name",
+                    "slug"
+                ]
+            },
+
+            {
+                model: ProductMedia,
+                as: "media",
+                required: false,
+                separate: true,
+                order: [
+                    [
+                        "display_order",
+                        "ASC"
+                    ]
+                ]
             }
+
         ],
 
         order: [
-            ["updated_at", "DESC"]
-        ]
+            [
+                "updated_at",
+                "DESC"
+            ]
+        ],
+
+        limit: pageLimit,
+
+        offset,
+
+        distinct: true
 
     });
+
+
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return {
+
+        products: rows,
+
+        total: count,
+
+        page: currentPage,
+
+        limit: pageLimit,
+
+        totalPages:
+            Math.ceil(
+                count / pageLimit
+            )
+
+    };
 
 };
 

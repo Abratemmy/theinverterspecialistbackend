@@ -134,3 +134,67 @@ exports.forgotPassword = async (email) => {
     );
 
 };
+
+// ============================================================
+// UPDATE PROFILE
+// ============================================================
+
+exports.updateProfile = async (
+    userId,
+    profileData,
+    file
+) => {
+
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+        throw new Error("User not found.");
+    }
+
+
+    // ========================================================
+    // UPDATE PERSONAL INFORMATION
+    // ========================================================
+
+    user.first_name =
+        profileData.first_name?.trim() ||
+        user.first_name;
+
+    user.last_name =
+        profileData.last_name?.trim() ||
+        user.last_name;
+
+    user.phone =
+        profileData.phone?.trim() || null;
+
+
+    // ========================================================
+    // SAVE PROFILE IMAGE
+    // ========================================================
+
+    if (file) {
+
+        user.profile_image =
+            `/uploads/profile-images/${file.filename}`;
+
+    }
+
+
+    // ========================================================
+    // SAVE
+    // ========================================================
+
+    await user.save();
+
+
+    // ========================================================
+    // RETURN USER WITHOUT PASSWORD
+    // ========================================================
+
+    const userResponse =
+        user.toJSON();
+
+    delete userResponse.password;
+
+    return userResponse;
+};

@@ -42,6 +42,12 @@ exports.getProducts = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("================================");
+    console.error("GET PRODUCTS ERROR");
+    console.error("MESSAGE:", error.message);
+    console.error("NAME:", error.name);
+    console.error("STACK:", error.stack);
+    console.error("================================");
 
         return res.status(500).json({
             success: false,
@@ -59,20 +65,22 @@ exports.getProductBySlug = async (req, res) => {
 
     try {
 
-        const product = await productService.getProductBySlug(
-            req.params.slug
-        );
+        const product =
+            await productService.getProductBySlug(
+                req.params.slug
+            );
+
 
         return res.status(200).json({
             success: true,
-            data: product
+            data: product,
         });
 
     } catch (error) {
 
         return res.status(404).json({
             success: false,
-            message: error.message
+            message: error.message,
         });
 
     }
@@ -141,20 +149,32 @@ exports.getInactiveProducts = async (req, res) => {
 
     try {
 
-        const products =
-            await productService.getInactiveProducts();
+        const result =
+            await productService.getInactiveProducts(
+                req.query
+            );
 
         return res.status(200).json({
+
             success: true,
-            count: products.length,
-            data: products
+
+            ...result
+
         });
 
     } catch (error) {
 
+        console.error(
+            "GET INACTIVE PRODUCTS ERROR:",
+            error
+        );
+
         return res.status(500).json({
+
             success: false,
+
             message: error.message
+
         });
 
     }

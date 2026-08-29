@@ -12,6 +12,7 @@ const Order = require("./Order");
 const OrderItem = require("./OrderItem");
 
 const Payment = require("./Payment");
+const Wishlist = require("./Wishlist");
 
 // Category
 Category.hasMany(Product, {
@@ -192,6 +193,26 @@ Payment.belongsTo(User, {
     as: "user"
 });
 
+//wishlist
+User.hasMany(Wishlist, {
+    foreignKey: "user_id",
+    onDelete: "CASCADE"
+});
+
+Wishlist.belongsTo(User, {
+    foreignKey: "user_id"
+});
+
+
+Product.hasMany(Wishlist, {
+    foreignKey: "product_id",
+    onDelete: "CASCADE"
+});
+
+Wishlist.belongsTo(Product, {
+    foreignKey: "product_id"
+});
+
 module.exports = {
     Product,
     Category,
@@ -205,6 +226,7 @@ module.exports = {
     ShippingAddress,
     Order,
     OrderItem,
-    Payment
+    Payment,
+    Wishlist
 
 };

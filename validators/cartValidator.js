@@ -19,9 +19,14 @@ exports.addToCartValidator = [
 exports.updateCartValidator = [
 
     body("quantity")
-        .notEmpty()
+        .exists()
         .withMessage("Quantity is required.")
+
+        .bail()
+
         .isInt({ min: 1 })
-        .withMessage("Quantity must be at least 1.")
+        .withMessage(
+            "Quantity must be a whole number greater than 0."
+        )
 
 ];

@@ -1,428 +1,1269 @@
-const Payment = require("../models/Payment");
-const Order = require("../models/Order");
-const User = require("../models/User");
+const axios = require("axios");
+const crypto = require("crypto");
+
+const {
+    Payment,
+    Order,
+    User,
+    Cart,
+    CartItem
+} = require("../models");
+const notificationService =
+    require("./notificationService");
 
 const sequelize = require("../config/database");
-const OrderItem = require("../models/OrderItem");
-const Product = require("../models/Product");
-const Cart = require("../models/Cart");
-const paystack = require("../utils/paystack");
 
-exports.initializePayment = async (orderId, userId) => {
 
-    // Find the order
-    const order = await Order.findOne({
-        where: {
-            id: orderId,
-            user_id: userId
-        }
-    });
+// ============================================================
+// PAYSTACK CONFIG
+// ============================================================
 
-    if (!order) {
-        throw new Error("Order not found.");
-    }
+const PAYSTACK_BASE_URL =
+    "https://api.paystack.co";
 
-    if (order.payment_status === "paid") {
-        throw new Error("This order has already been paid.");
-    }
+const PAYSTACK_SECRET_KEY =
+    process.env.PAYSTACK_SECRET_KEY;
 
-    // Find the customer
-    const user = await User.findByPk(userId);
 
-    if (!user) {
-        throw new Error("User not found.");
-    }
+// ============================================================
+// CHECK PAYSTACK KEY
+// ============================================================
 
-     // Check for existing pending payment
-    const existingPayment = await Payment.findOne({
-        where: {
-            order_id: order.id,
-            status: "pending"
-        }
-    });
+if (!PAYSTACK_SECRET_KEY) {
 
-    if (existingPayment) {
-
-        try {
-
-            // Verify existing payment with Paystack
-            const verifyResponse = await paystack.get(
-                `/transaction/verify/${existingPayment.payment_reference}`
-            );
-
-            const paymentStatus = verifyResponse.data.data.status;
-
-            // Already paid
-            if (paymentStatus === "success") {
-
-                order.payment_status = "paid";
-                order.order_status = "processing";
-
-                await order.save();
-
-                existingPayment.status = "successful";
-                existingPayment.gateway_transaction_id =
-                    verifyResponse.data.data.id;
-
-                existingPayment.gateway_response =
-                    JSON.stringify(verifyResponse.data.data);
-
-                existingPayment.paid_at =
-                    verifyResponse.data.data.paid_at;
-
-                await existingPayment.save();
-                return {
-                    alreadyPaid: true,
-                    message: "This order has already been paid."
-                };
-
-            }
-
-            // Previous payment wasn't successful
-            existingPayment.status = "cancelled";
-
-            await existingPayment.save();
-
-        } catch (error) {
-
-            // If Paystack cannot verify it,
-            // just cancel the old payment and continue.
-
-            if (existingPayment.status === "pending") {
-
-                existingPayment.status = "cancelled";
-
-                await existingPayment.save();
-
-            }
-
-        }
-
-    }
-
-    // Generate unique reference
-    const reference = `INV-${Date.now()}`;
-
-    console.log("====== PAYSTACK REQUEST ======");
-    console.log({
-        email: user.email,
-        amount: Number(order.total_amount) * 100,
-        reference,
-        callback_url: process.env.PAYSTACK_CALLBACK_URL
-    });
-
-   try {
-
-    const response = await paystack.post(
-        "/transaction/initialize",
-        {
-            email: user.email,
-            amount: Number(order.total_amount) * 100,
-            reference,
-            callback_url: process.env.PAYSTACK_CALLBACK_URL
-        }
+    console.warn(
+        "WARNING: PAYSTACK_SECRET_KEY is not configured."
     );
 
-    console.log("====== PAYSTACK RESPONSE ======");
-    console.log(response.data);
+}
 
-    // Save pending payment ONLY after Paystack succeeds
-    await Payment.create({
-        order_id: order.id,
-        user_id: user.id,
-        payment_reference: reference,
-        amount: order.total_amount,
-        status: "pending"
-    });
 
-    return response.data.data;
+// ============================================================
+// PAYSTACK REQUEST HEADERS
+// ============================================================
 
-    } catch (error) {
+const paystackHeaders = {
 
-        console.log("====== PAYSTACK ERROR ======");
+    Authorization:
+        `Bearer ${PAYSTACK_SECRET_KEY}`,
 
-        console.log(error.response?.data);
+    "Content-Type":
+        "application/json"
+
+};
+
+
+// ============================================================
+// GENERATE PAYMENT REFERENCE
+// ============================================================
+
+const generatePaymentReference = () => {
+
+    const timestamp =
+        Date.now();
+
+    const random =
+        Math.floor(
+            100000 +
+            Math.random() * 900000
+        );
+
+    return `TIS-PAY-${timestamp}-${random}`;
+
+};
+
+
+// ============================================================
+// INITIALIZE PAYMENT
+// ============================================================
+
+exports.initializePayment = async (
+    orderId,
+    userId
+) => {
+
+    // --------------------------------------------------------
+    // Check order
+    // --------------------------------------------------------
+
+    const order =
+        await Order.findOne({
+
+            where: {
+
+                id:
+                    orderId,
+
+                user_id:
+                    userId
+
+            }
+
+        });
+
+
+    if (!order) {
 
         throw new Error(
-            error.response?.data?.message ||
-            error.message
+            "Order not found."
         );
 
     }
-};
 
-exports.verifyPayment = async (reference) => {
 
-    const transaction = await sequelize.transaction();
+    // --------------------------------------------------------
+    // Check order payment status
+    // --------------------------------------------------------
+
+    if (
+        order.payment_status ===
+        "paid"
+    ) {
+
+        throw new Error(
+            "This order has already been paid for."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Check order status
+    // --------------------------------------------------------
+
+    if (
+        order.order_status ===
+        "cancelled"
+    ) {
+
+        throw new Error(
+            "This order has been cancelled."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Check user
+    // --------------------------------------------------------
+
+    const user =
+        await User.findByPk(
+            userId
+        );
+
+
+    if (!user) {
+
+        throw new Error(
+            "User account not found."
+        );
+
+    }
+
+
+    if (!user.email) {
+
+        throw new Error(
+            "A valid email address is required for payment."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Check base order amount
+    // --------------------------------------------------------
+    const orderAmount =
+    Number(order.total_amount);
+
+    if (
+        !orderAmount ||
+        orderAmount <= 0
+    ) {
+
+        throw new Error(
+            "Invalid order amount."
+        );
+
+    }
+
+
+
+    // --------------------------------------------------------
+    // Generate new reference
+    // --------------------------------------------------------
+
+    const reference =
+        generatePaymentReference();
+
+
+    // --------------------------------------------------------
+    // Paystack amount is in kobo
+    //
+    // ₦50,000 = 5,000,000 kobo
+    // --------------------------------------------------------
+
+    const amountInKobo =
+        Math.round(
+            orderAmount * 100
+        );
+
 
     try {
 
-        // Find payment record
-        const payment = await Payment.findOne({
-            where: {
-                payment_reference: reference
-            },
-            transaction
-        });
+        // ====================================================
+        // INITIALIZE PAYSTACK TRANSACTION
+        // ====================================================
 
-        if (!payment) {
-            throw new Error("Payment record not found.");
-        }
+        const response =
+            await axios.post(
 
-        // If payment already processed, return immediately
-        if (payment.status === "successful") {
+                `${PAYSTACK_BASE_URL}/transaction/initialize`,
 
-            await transaction.rollback();
+                {
 
-            return {
-                alreadyVerified: true,
-                payment
-            };
+                    email:
+                        user.email,
 
-        }
+                    amount:
+                        amountInKobo,
 
-        // Verify transaction with Paystack
-        const response = await paystack.get(
-            `/transaction/verify/${reference}`
-        );
+                    currency:
+                        "NGN",
 
-        const paymentData = response.data.data;
+                    reference,
 
-        // Payment failed or abandoned
-        if (paymentData.status !== "success") {
+                    metadata: {
 
-            payment.status = "failed";
+                        order_id:
+                            order.id,
 
-            payment.gateway_response =
-                JSON.stringify(paymentData);
+                        order_number:
+                            order.order_number,
 
-            await payment.save({ transaction });
+                        user_id:
+                            userId
 
-            await transaction.commit();
+                    },
 
-            return {
-                alreadyVerified: false,
-                payment
-            };
+                    callback_url:
+                        process.env.PAYSTACK_CALLBACK_URL
 
-        }
+                },
 
-        // -----------------------------
-        // PAYMENT SUCCESSFUL
-        // -----------------------------
+                {
 
-        payment.status = "successful";
+                    headers:
+                        paystackHeaders
 
-        payment.gateway_transaction_id =
-            paymentData.id;
+                }
 
-        payment.gateway_response =
-            JSON.stringify(paymentData);
-
-        payment.paid_at =
-            new Date(paymentData.paid_at);
-
-        await payment.save({ transaction });
-
-        // Get Order
-        const order = await Order.findByPk(
-            payment.order_id,
-            { transaction }
-        );
-
-        if (!order) {
-            throw new Error("Order not found.");
-        }
-
-        // Update order only once
-        if (order.payment_status !== "paid") {
-
-            order.payment_status = "paid";
-
-            order.order_status = "processing";
-
-            await order.save({ transaction });
-
-        }
-
-        // Get ordered items
-        const orderItems = await OrderItem.findAll({
-
-            where: {
-                order_id: order.id
-            },
-
-            transaction
-
-        });
-
-        // Reduce stock
-        for (const item of orderItems) {
-
-            const product = await Product.findByPk(
-                item.product_id,
-                { transaction }
             );
 
-            if (!product) {
 
-                throw new Error(
-                    `Product ID ${item.product_id} not found.`
-                );
+        if (
+            !response.data ||
+            !response.data.status
+        ) {
 
-            }
-
-            // Prevent negative stock
-            if (product.quantity < item.quantity) {
-
-                throw new Error(
-                    `${product.name} no longer has enough stock.`
-                );
-
-            }
-
-            product.quantity =
-                product.quantity - item.quantity;
-
-            await product.save({ transaction });
+            throw new Error(
+                response.data?.message ||
+                "Unable to initialize payment."
+            );
 
         }
 
-        // Checkout customer's active cart
-        const cart = await Cart.findOne({
 
-            where: {
+        const paystackData =
+            response.data.data;
 
-                user_id: order.user_id,
 
-                status: "active"
+        // ====================================================
+        // CREATE / UPDATE PAYMENT RECORD
+        // ====================================================
 
-            },
+        const payment =
+    await Payment.create({
 
-            transaction
+        order_id:
+            order.id,
 
-        });
+        user_id:
+            userId,
 
-        if (cart) {
+        payment_reference:
+            reference,
 
-            cart.status = "checked_out";
+        gateway:
+            "paystack",
 
-            await cart.save({ transaction });
+        payment_method:
+            "card",
 
-        }
+        amount:
+            orderAmount,
 
-        await transaction.commit();
+        currency:
+            "NGN",
+
+        status:
+            "pending",
+
+        gateway_response:
+            JSON.stringify(
+                response.data
+            )
+
+    });
+
+
+        // ====================================================
+        // RETURN PAYMENT DATA
+        // ====================================================
 
         return {
 
-            alreadyVerified: false,
+            paymentId:
+                payment.id,
 
-            payment,
+            orderId:
+                order.id,
 
-            order
+            orderNumber:
+                order.order_number,
+
+            amount:
+                orderAmount,
+
+            currency:
+                "NGN",
+
+            reference,
+
+            authorizationUrl:
+                paystackData.authorization_url,
+
+            accessCode:
+                paystackData.access_code
 
         };
 
-    } catch (error) {
+    }
+    catch (error) {
 
-        await transaction.rollback();
+        console.error(
+            "Paystack initialization error:",
+            error.response?.data ||
+            error.message
+        );
 
-        throw error;
+
+        const paystackMessage =
+            error.response?.data?.message;
+
+
+        throw new Error(
+            paystackMessage ||
+            "Unable to initialize payment. Please try again."
+        );
 
     }
 
 };
 
-// payment webhook
-const crypto = require("crypto");
 
-exports.paystackWebhook = async (signature, payload) => {
+// ============================================================
+// CLEAR / CLOSE CART AFTER SUCCESSFUL PAYMENT
+// ============================================================
+//
+// IMPORTANT:
+//
+// We don't simply delete the cart.
+// We change:
+//
+// active → checked_out
+//
+// and remove its cart items.
+//
+// This preserves the cart record for history/reference,
+// while preventing the paid items from remaining in
+// the customer's active shopping cart.
+//
+// ============================================================
 
-    // Verify signature
-    const hash = crypto
-        .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
-        .update(payload)
-        .digest("hex");
+const completePaidCart = async (
+    order,
+    transaction
+) => {
 
-    if (hash !== signature) {
-        throw new Error("Invalid Paystack signature.");
-    }
+    if (!order.cart_id) {
 
-    const event = JSON.parse(payload);
+        console.warn(
+            `Order ${order.id} has no cart_id.`
+        );
 
-    // Only process successful payments
-    if (event.event !== "charge.success") {
         return;
+
     }
 
-    const reference = event.data.reference;
 
-    // Find payment
-    const payment = await Payment.findOne({
+    // --------------------------------------------------------
+    // Find the cart
+    // --------------------------------------------------------
+
+    const cart =
+        await Cart.findOne({
+
+            where: {
+
+                id:
+                    order.cart_id,
+
+                user_id:
+                    order.user_id
+
+            },
+
+            transaction,
+
+            lock:
+                transaction.LOCK.UPDATE
+
+        });
+
+
+    if (!cart) {
+
+        console.warn(
+            `Cart ${order.cart_id} not found for order ${order.id}.`
+        );
+
+        return;
+
+    }
+
+
+    // --------------------------------------------------------
+    // Delete cart items
+    // --------------------------------------------------------
+
+    await CartItem.destroy({
 
         where: {
-            payment_reference: reference
-        }
+
+            cart_id:
+                cart.id
+
+        },
+
+        transaction
 
     });
 
-    if (!payment) {
-        throw new Error("Payment not found.");
+
+    // --------------------------------------------------------
+    // Close the cart
+    // --------------------------------------------------------
+
+    cart.status =
+        "checked_out";
+
+
+    await cart.save({
+
+        transaction
+
+    });
+
+};
+
+
+// ============================================================
+// VERIFY PAYMENT
+// ============================================================
+
+exports.verifyPayment = async (
+    reference
+) => {
+
+    if (!reference) {
+
+        throw new Error(
+            "Payment reference is required."
+        );
+
     }
 
-    // Already processed?
-    if (payment.status === "successful") {
-        return;
-    }
 
-    // Update payment
-    payment.status = "successful";
-    payment.gateway_transaction_id = event.data.id;
-    payment.gateway_response = JSON.stringify(event.data);
-    payment.paid_at = new Date();
+    // --------------------------------------------------------
+    // Find payment
+    // --------------------------------------------------------
 
-    await payment.save();
-
-    // Find order
-    const order = await Order.findByPk(payment.order_id);
-
-    if (!order) {
-        throw new Error("Order not found.");
-    }
-
-    order.payment_status = "paid";
-    order.order_status = "processing";
-
-    await order.save();
-
-    // Reduce stock only once
-    if (!order.stock_updated) {
-
-        const items = await OrderItem.findAll({
+    const payment =
+        await Payment.findOne({
 
             where: {
-                order_id: order.id
+
+                payment_reference:
+                    reference
+
             }
 
         });
 
-        for (const item of items) {
 
-            const product = await Product.findByPk(item.product_id);
+    if (!payment) {
 
-            if (!product) {
-                continue;
-            }
+        throw new Error(
+            "Payment record not found."
+        );
 
-            product.quantity -= item.quantity;
+    }
 
-            await product.save();
+
+    // --------------------------------------------------------
+    // Already successful
+    //
+    // If the webhook already processed the payment,
+    // don't process it again.
+    // --------------------------------------------------------
+
+    if (
+        payment.status ===
+        "successful"
+    ) {
+
+        const order =
+            await Order.findByPk(
+                payment.order_id
+            );
+
+
+        return {
+
+            alreadyVerified:
+                true,
+
+            payment,
+
+            order,
+
+            status:
+                "success",
+
+            baseAmount:
+                Number(order.total_amount),
+
+            vatRate:
+                0.075,
+
+            vatAmount:
+                Number(
+                    (
+                        Number(payment.amount) -
+                        Number(order.total_amount)
+                    ).toFixed(2)
+                ),
+
+            totalAmount:
+                Number(payment.amount)
+
+        };
+
+    }
+
+
+    try {
+
+        // ====================================================
+        // VERIFY WITH PAYSTACK
+        // ====================================================
+
+        const response =
+            await axios.get(
+
+                `${PAYSTACK_BASE_URL}/transaction/verify/${reference}`,
+
+                {
+
+                    headers:
+                        paystackHeaders
+
+                }
+
+            );
+
+
+        if (
+            !response.data ||
+            !response.data.status
+        ) {
+
+            throw new Error(
+                response.data?.message ||
+                "Payment verification failed."
+            );
 
         }
 
-        order.stock_updated = true;
 
-        await order.save();
+        const transactionObject =
+            response.data.data;
+
+
+        // ====================================================
+        // CHECK PAYSTACK STATUS
+        // ====================================================
+
+        if (
+            transactionObject.status !==
+            "success"
+        ) {
+
+            payment.status =
+                "failed";
+
+            payment.gateway_response =
+                JSON.stringify(
+                    transactionObject
+                );
+
+            await payment.save();
+
+
+            throw new Error(
+                transactionObject.gateway_response ||
+                "Payment was not successful."
+            );
+
+        }
+
+
+        // ====================================================
+        // VERIFY AMOUNT
+        // ====================================================
+
+        const expectedAmount =
+            Math.round(
+                Number(payment.amount) *
+                100
+            );
+
+
+        if (
+            Number(transactionObject.amount) !==
+            expectedAmount
+        ) {
+
+            throw new Error(
+                "Payment amount does not match the order amount."
+            );
+
+        }
+
+
+        // ====================================================
+        // START DATABASE TRANSACTION
+        // ====================================================
+
+        const dbTransaction =
+            await sequelize.transaction();
+
+
+        try {
+
+            // =================================================
+            // UPDATE PAYMENT
+            // =================================================
+
+            payment.status =
+                "successful";
+
+            payment.gateway_transaction_id =
+                String(
+                    transactionObject.id
+                );
+
+            payment.gateway_response =
+                JSON.stringify(
+                    transactionObject
+                );
+
+            payment.paid_at =
+                transactionObject.paid_at
+                    ? new Date(
+                        transactionObject.paid_at
+                    )
+                    : new Date();
+
+
+            await payment.save({
+
+                transaction:
+                    dbTransaction
+
+            });
+
+
+            // =================================================
+            // FIND ORDER
+            // =================================================
+
+            const order =
+                await Order.findByPk(
+
+                    payment.order_id,
+
+                    {
+
+                        transaction:
+                            dbTransaction,
+
+                        lock:
+                            dbTransaction.LOCK.UPDATE
+
+                    }
+
+                );
+
+
+            if (!order) {
+
+                throw new Error(
+                    "Order associated with payment was not found."
+                );
+
+            }
+
+
+            // =================================================
+            // UPDATE ORDER
+            // =================================================
+
+            order.payment_status =
+                "paid";
+
+
+            if (
+                order.order_status ===
+                "pending"
+            ) {
+
+                order.order_status =
+                    "processing";
+
+            }
+
+
+            await order.save({
+
+                transaction:
+                    dbTransaction
+
+            });
+
+            // ----------------------------------------------------
+            // Notify admins and managers about payment
+            // ----------------------------------------------------
+
+            const staffUsers =
+                await User.findAll({
+
+                    where: {
+                        role: [
+                            "admin",
+                            "manager"
+                        ],
+
+                        status: "active"
+                    },
+
+                    attributes: [
+                        "id"
+                    ]
+
+                });
+
+
+            for (const staff of staffUsers) {
+
+                await notificationService.createNotification({
+
+                    user_id:
+                        staff.id,
+
+                    title:
+                        "Payment Received",
+
+                    message:
+                        `Payment for order ${order.order_number} has been successfully received.`,
+
+                    type:
+                        "payment"
+
+                });
+
+            }
+
+
+            // =================================================
+            // CLEAR / CLOSE CART
+            // =================================================
+
+            await completePaidCart(
+
+                order,
+
+                dbTransaction
+
+            );
+
+
+            // =================================================
+            // COMMIT EVERYTHING
+            // =================================================
+
+            await dbTransaction.commit();
+
+
+            // =================================================
+            // RETURN
+            // =================================================
+
+            return {
+
+                alreadyVerified:
+                    false,
+
+                payment,
+
+                order,
+
+                status:
+                    "success",
+
+                transaction:
+                    transactionObject,
+
+                baseAmount:
+                    Number(order.total_amount),
+
+                vatRate:
+                    0.075,
+
+                vatAmount:
+                    Number(
+                        (
+                            Number(payment.amount) -
+                            Number(order.total_amount)
+                        ).toFixed(2)
+                    ),
+
+                totalAmount:
+                    Number(payment.amount)
+
+            };
+
+        }
+        catch (error) {
+
+            await dbTransaction.rollback();
+
+            throw error;
+
+        }
+
+    }
+    catch (error) {
+
+        console.error(
+            "Payment verification error:",
+            error.response?.data ||
+            error.message
+        );
+
+
+        throw new Error(
+            error.response?.data?.message ||
+            error.message ||
+            "Unable to verify payment."
+        );
+
+    }
+
+};
+
+
+// ============================================================
+// PAYSTACK WEBHOOK
+// ============================================================
+
+exports.paystackWebhook = async (
+    signature,
+    rawBody
+) => {
+
+    // --------------------------------------------------------
+    // Check signature
+    // --------------------------------------------------------
+
+    if (!signature) {
+
+        throw new Error(
+            "Missing Paystack signature."
+        );
+
+    }
+
+
+    if (!rawBody) {
+
+        throw new Error(
+            "Missing webhook body."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Generate expected signature
+    // --------------------------------------------------------
+
+    const hash =
+        crypto
+            .createHmac(
+                "sha512",
+                PAYSTACK_SECRET_KEY
+            )
+            .update(rawBody)
+            .digest("hex");
+
+
+    // --------------------------------------------------------
+    // Compare signatures
+    // --------------------------------------------------------
+
+    const received =
+        Buffer.from(
+            signature
+        );
+
+    const expected =
+        Buffer.from(
+            hash
+        );
+
+
+    if (
+        received.length !==
+        expected.length ||
+        !crypto.timingSafeEqual(
+            received,
+            expected
+        )
+    ) {
+
+        throw new Error(
+            "Invalid Paystack webhook signature."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Parse body
+    // --------------------------------------------------------
+
+    let event;
+
+
+    try {
+
+        event =
+            JSON.parse(
+                rawBody.toString()
+            );
+
+    }
+    catch (error) {
+
+        throw new Error(
+            "Invalid webhook payload."
+        );
+
+    }
+
+
+    // --------------------------------------------------------
+    // Only process successful charge
+    // --------------------------------------------------------
+
+    if (
+        event.event !==
+        "charge.success"
+    ) {
+
+        return {
+
+            processed:
+                false,
+
+            event:
+                event.event
+
+        };
+
+    }
+
+
+    const transaction =
+        event.data;
+
+
+    if (!transaction) {
+
+        throw new Error(
+            "Invalid Paystack transaction data."
+        );
+
+    }
+
+
+    const reference =
+        transaction.reference;
+
+
+    if (!reference) {
+
+        throw new Error(
+            "Payment reference missing."
+        );
+
+    }
+
+
+    // ========================================================
+    // FIND PAYMENT
+    // ========================================================
+
+    const payment =
+        await Payment.findOne({
+
+            where: {
+
+                payment_reference:
+                    reference
+
+            }
+
+        });
+
+
+    if (!payment) {
+
+        console.warn(
+            `Payment not found for reference: ${reference}`
+        );
+
+
+        return {
+
+            processed:
+                false,
+
+            reason:
+                "Payment record not found."
+
+        };
+
+    }
+
+
+    // --------------------------------------------------------
+    // Prevent duplicate processing
+    // --------------------------------------------------------
+
+    if (
+        payment.status ===
+        "successful"
+    ) {
+
+        return {
+
+            processed:
+                true,
+
+            alreadyProcessed:
+                true
+
+        };
+
+    }
+
+
+    // ========================================================
+    // VERIFY AMOUNT
+    // ========================================================
+
+    const expectedAmount =
+        Math.round(
+            Number(payment.amount) *
+            100
+        );
+
+
+    if (
+        Number(transaction.amount) !==
+        expectedAmount
+    ) {
+
+        throw new Error(
+            "Webhook payment amount does not match."
+        );
+
+    }
+
+
+    // ========================================================
+    // DATABASE TRANSACTION
+    // ========================================================
+
+    const dbTransaction =
+        await sequelize.transaction();
+
+
+    try {
+
+        // ----------------------------------------------------
+        // Update Payment
+        // ----------------------------------------------------
+
+        payment.status =
+            "successful";
+
+        payment.gateway_transaction_id =
+            String(
+                transaction.id
+            );
+
+        payment.gateway_response =
+            JSON.stringify(
+                transaction
+            );
+
+        payment.paid_at =
+            transaction.paid_at
+                ? new Date(
+                    transaction.paid_at
+                )
+                : new Date();
+
+
+        await payment.save({
+
+            transaction:
+                dbTransaction
+
+        });
+
+
+        // ----------------------------------------------------
+        // Find Order
+        // ----------------------------------------------------
+
+        const order =
+            await Order.findByPk(
+
+                payment.order_id,
+
+                {
+
+                    transaction:
+                        dbTransaction,
+
+                    lock:
+                        dbTransaction.LOCK.UPDATE
+
+                }
+
+            );
+
+
+        if (!order) {
+
+            throw new Error(
+                "Order associated with payment not found."
+            );
+
+        }
+
+
+        // ----------------------------------------------------
+        // Update Order
+        // ----------------------------------------------------
+
+        order.payment_status =
+            "paid";
+
+
+        if (
+            order.order_status ===
+            "pending"
+        ) {
+
+            order.order_status =
+                "processing";
+
+        }
+
+
+        await order.save({
+
+            transaction:
+                dbTransaction
+
+        });
+
+
+        // ----------------------------------------------------
+        // Clear / Close Cart
+        // ----------------------------------------------------
+
+        await completePaidCart(
+
+            order,
+
+            dbTransaction
+
+        );
+
+
+        // ----------------------------------------------------
+        // Commit
+        // ----------------------------------------------------
+
+        await dbTransaction.commit();
+
+
+        return {
+
+            processed:
+                true,
+
+            reference,
+
+            orderId:
+                order.id
+
+        };
+
+    }
+    catch (error) {
+
+        await dbTransaction.rollback();
+
+        throw error;
 
     }
 

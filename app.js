@@ -25,7 +25,14 @@ const adminOrderRoutes = require("./routes/admin/orderRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const dashboardRoutes = require("./routes/admin/dashboardRoutes");
 const reportRoutes = require("./routes/admin/reportRoutes");
+const path = require("path");
+const wishlistRoutes = require("./routes/wishlistRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+const adminPaymentRoutes = require("./routes/admin/paymentRoutes");
 
+const adminCustomerRoutes = require("./routes/adminCustomerRoutes");
+const adminContactMessageRoutes = require("./routes/adminContactMessageRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 app.use(cors({
     origin: "http://localhost:3000", // React frontend
@@ -47,6 +54,37 @@ app.use(helmet());
 app.use(compression());
 app.use(morgan("dev"));
 
+// app.use(
+//     "/api/uploads",
+//     express.static(
+//         path.join(
+//             __dirname,
+//             "uploads"
+//         )
+//     )
+// );
+
+app.use(
+    "/api/uploads",
+    (req, res, next) => {
+
+        res.header(
+            "Access-Control-Allow-Origin",
+            "http://localhost:3000"
+        );
+
+        res.header(
+            "Cross-Origin-Resource-Policy",
+            "cross-origin"
+        );
+
+        next();
+    },
+
+    express.static(
+        path.join(__dirname, "uploads")
+    )
+);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin/categories", adminCategoryRoutes);
 app.use("/api/categories", categoryRoutes);
@@ -66,6 +104,12 @@ app.use(
     dashboardRoutes
 );
 app.use("/api/admin/reports", reportRoutes);
+app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/admin/payments", adminPaymentRoutes);
+app.use("/api/admin/customers", adminCustomerRoutes);
+app.use("/api/admin/contact-messages",adminContactMessageRoutes);
+app.use( "/api/notifications", notificationRoutes);
 
 
 app.get("/", (req, res) => {
