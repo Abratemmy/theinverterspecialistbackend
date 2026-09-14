@@ -4,7 +4,7 @@ const {
 
 const ContactMessage =
     require("../models/ContactMessage");
-const transporter =
+const {transporter} =
     require("../config/email");
 
 

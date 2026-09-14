@@ -11,9 +11,16 @@ const protect =
 const validate =
     require("../middleware/validate");
 
+const authorize = require("../middleware/roleMiddleware")
+
 const {
     initializePaymentValidator
 } = require("../validators/paymentValidator");
+
+
+// ============================================================
+// PAYSTACK INITIALIZE
+// ============================================================
 
 router.post(
     "/initialize",
@@ -23,6 +30,11 @@ router.post(
     paymentController.initializePayment
 );
 
+
+// ============================================================
+// VERIFY PAYSTACK PAYMENT
+// ============================================================
+
 router.get(
     "/verify/:reference",
     protect,
@@ -30,10 +42,31 @@ router.get(
 );
 
 
-// Paystack Webhook
+// ============================================================
+// DIRECT BANK TRANSFER
+// ============================================================
+
+router.post(
+    "/bank-transfer",
+    protect,
+    paymentController.createBankTransferPayment
+);
+
+router.patch(
+    "/admin/bank-transfer/:paymentId/confirm",
+    protect,
+    authorize("admin", "manager"),
+    paymentController.confirmBankTransferPayment
+);
+
+// ============================================================
+// PAYSTACK WEBHOOK
+// ============================================================
+
 router.post(
     "/webhook",
     paymentController.paystackWebhook
 );
+
 
 module.exports = router;

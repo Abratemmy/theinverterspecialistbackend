@@ -13,6 +13,7 @@ const OrderItem = require("./OrderItem");
 
 const Payment = require("./Payment");
 const Wishlist = require("./Wishlist");
+const Gallery = require('./Gallery')
 
 // Category
 Category.hasMany(Product, {
@@ -227,6 +228,7 @@ module.exports = {
     Order,
     OrderItem,
     Payment,
-    Wishlist
+    Wishlist,
+    Gallery
 
 };

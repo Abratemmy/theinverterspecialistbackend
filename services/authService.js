@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
+const { Op } = require("sequelize");
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 const sendEmail = require("../utils/sendEmail");
@@ -132,6 +133,63 @@ exports.forgotPassword = async (email) => {
         "Reset Your Password",
         html
     );
+
+};
+
+// ============================================================
+// RESET PASSWORD
+// ============================================================
+
+exports.resetPassword = async (token, newPassword) => {
+
+    if (!token) {
+        throw new Error("Reset token is required.");
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+        throw new Error("Password must be at least 6 characters long.");
+    }
+
+    // ========================================================
+    // HASH INCOMING TOKEN TO MATCH STORED HASH
+    // ========================================================
+
+    const hashedToken = crypto
+        .createHash("sha256")
+        .update(token)
+        .digest("hex");
+
+
+    // ========================================================
+    // FIND USER WITH MATCHING, UNEXPIRED TOKEN
+    // ========================================================
+
+    const user = await User.findOne({
+        where: {
+            reset_password_token: hashedToken,
+            reset_password_expires: {
+                [Op.gt]: new Date()
+            }
+        }
+    });
+
+    if (!user) {
+        throw new Error("This reset link is invalid or has expired.");
+    }
+
+
+    // ========================================================
+    // UPDATE PASSWORD
+    // ========================================================
+
+    user.password = await bcrypt.hash(newPassword, 10);
+
+    user.reset_password_token = null;
+    user.reset_password_expires = null;
+
+    await user.save();
+
+    return true;
 
 };
 

@@ -1,5 +1,5 @@
 const ContactMessage = require("../models/ContactMessage");
-const transporter = require("../config/email");
+const {transporter} = require("../config/email");
 const notificationService =
     require("./notificationService");
 const User =

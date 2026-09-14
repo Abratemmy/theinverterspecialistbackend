@@ -457,12 +457,47 @@ exports.resetPassword = async (
     res
 ) => {
 
-    res.json({
+    try {
 
-        message:
-            "Reset Password API"
+        const { token } =
+            req.params;
 
-    });
+        const { password } =
+            req.body;
+
+
+        await authService.resetPassword(
+            token,
+            password
+        );
+
+
+        return res.status(200).json({
+
+            success: true,
+
+            message:
+                "Password reset successful. You can now log in with your new password."
+
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Reset password error:",
+            error
+        );
+
+        return res.status(400).json({
+
+            success: false,
+
+            message:
+                error.message
+
+        });
+
+    }
 
 };
 

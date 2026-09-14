@@ -1030,11 +1030,6 @@ exports.getOrder = async (
 
 };
 
-
-// ============================================================
-// GET ALL ORDERS - ADMIN
-// ============================================================
-
 // ============================================================
 // GET ALL ORDERS - ADMIN
 // ============================================================
@@ -1120,8 +1115,9 @@ exports.getAllOrders = async ({
         include: [
 
             // =================================================
-            // ORDER ITEMS
+            // CUSTOMER
             // =================================================
+
             {
                 model: User,
 
@@ -1134,45 +1130,37 @@ exports.getAllOrders = async ({
                     "email",
                     "phone"
                 ]
-
             },
 
+
+            // =================================================
+            // ORDER ITEMS
+            // =================================================
+
             {
+                model: OrderItem,
 
-                model:
-                    OrderItem,
-
-                as:
-                    "items",
+                as: "items",
 
                 include: [
 
                     {
+                        model: Product,
 
-                        model:
-                            Product,
-
-                        as:
-                            "product",
+                        as: "product",
 
                         include: [
 
                             {
+                                model: ProductMedia,
 
-                                model:
-                                    ProductMedia,
-
-                                as:
-                                    "media"
-
+                                as: "media"
                             }
 
                         ]
-
                     }
 
                 ]
-
             },
 
 
@@ -1181,13 +1169,42 @@ exports.getAllOrders = async ({
             // =================================================
 
             {
+                model: ShippingAddress,
 
-                model:
-                    ShippingAddress,
+                as: "shippingAddress"
+            },
 
-                as:
-                    "shippingAddress"
 
+            // =================================================
+            // PAYMENT
+            // =================================================
+
+            {
+                model: Payment,
+
+                as: "payments",
+
+                attributes: [
+                    "id",
+                    "order_id",
+                    "user_id",
+                    "payment_reference",
+                    "gateway",
+                    "payment_method",
+                    "amount",
+                    "currency",
+                    "status",
+                    "paid_at",
+                    "created_at"
+                ],
+
+                separate: true,
+
+                order: [
+                    ["created_at", "DESC"]
+                ],
+
+                limit: 1
             }
 
         ],
@@ -1318,7 +1335,23 @@ exports.getAdminOrder = async (
                         as:
                             "shippingAddress"
 
-                    }
+                    },
+                    {
+                        model: Payment,
+                        as: "payments",
+                        required: false,
+                        attributes: [
+                            "id",
+                            "order_id",
+                            "payment_method",
+                            "gateway",
+                            "status",
+                            "payment_reference",
+                            "amount",
+                            "paid_at",
+                            "created_at",
+                        ],
+                    },
 
                 ]
 
@@ -1515,6 +1548,25 @@ exports.updateOrderStatus = async (
 
     }
 
+
+    // ========================================================
+    // PAYMENT CHECK
+    // ========================================================
+
+    if (
+        order.payment_status !== "paid"
+    ) {
+
+        throw new Error(
+            "You can't change the order status because payment has not been made."
+        );
+
+    }
+
+
+    // ========================================================
+    // UPDATE STATUS
+    // ========================================================
 
     order.order_status =
         status;

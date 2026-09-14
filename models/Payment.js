@@ -27,7 +27,8 @@ const Payment = sequelize.define(
         },
 
         gateway: {
-            type: DataTypes.ENUM("paystack"),
+            type: DataTypes.ENUM("paystack", "bank_transfer"),
+            allowNull: false,
             defaultValue: "paystack"
         },
 

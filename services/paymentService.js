@@ -3,7 +3,9 @@ const crypto = require("crypto");
 
 const {
     Payment,
+    Product,
     Order,
+    OrderItem,
     User,
     Cart,
     CartItem
@@ -11,6 +13,7 @@ const {
 const notificationService =
     require("./notificationService");
 
+const {sendBankTransferOrderEmail} = require("../config/email")
 const sequelize = require("../config/database");
 
 
@@ -374,6 +377,149 @@ exports.initializePayment = async (
 
 
 // ============================================================
+// CREATE BANK TRANSFER PAYMENT
+// ============================================================
+exports.createBankTransferPayment = async (orderId, userId) => {
+    // Find the order belonging to the logged-in user
+    const order = await Order.findOne({
+        where: {
+            id: orderId,
+            user_id: userId,
+        },
+    });
+
+    if (!order) {
+        throw new Error("Order not found.");
+    }
+
+    if (order.payment_status === "paid") {
+        throw new Error("This order has already been paid for.");
+    }
+
+    if (order.order_status === "cancelled") {
+        throw new Error("This order has been cancelled.");
+    }
+
+    const orderAmount = Number(order.total_amount);
+
+    if (!orderAmount || orderAmount <= 0) {
+        throw new Error("Invalid order amount.");
+    }
+
+    // Find customer
+    const user = await User.findByPk(userId);
+
+    if (!user) {
+        throw new Error("User not found.");
+    }
+
+    if (!user.email) {
+        throw new Error("Customer email address is not available.");
+    }
+
+    // Check if a pending bank transfer payment already exists
+    let payment = await Payment.findOne({
+        where: {
+            order_id: order.id,
+            user_id: userId,
+            payment_method: "bank_transfer",
+            gateway: "bank_transfer",
+            status: "pending",
+        },
+        order: [["created_at", "DESC"]],
+    });
+
+    let alreadyExists = false;
+
+    if (payment) {
+        alreadyExists = true;
+        return {
+            paymentId: payment.id,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            amount: orderAmount,
+            currency: "NGN",
+            reference: payment.payment_reference,
+            paymentMethod: "bank_transfer",
+            status: payment.status,
+            alreadyExists: true,
+        };
+    } else {
+        // Generate payment reference
+        const reference = generatePaymentReference();
+
+        payment = await Payment.create({
+            order_id: order.id,
+            user_id: userId,
+            payment_reference: reference,
+            gateway: "bank_transfer",
+            payment_method: "bank_transfer",
+            amount: orderAmount,
+            currency: "NGN",
+            status: "pending",
+            gateway_response: JSON.stringify({
+                type: "bank_transfer",
+                instructions:
+                    "Customer should make payment using the provided bank account details.",
+            }),
+        });
+    }
+
+    // Get order items and products for the email
+    const items = await OrderItem.findAll({
+        where: {
+            order_id: order.id,
+        },
+        include: [
+            {
+                model: Product,
+                as: "product",
+                attributes: ["id", "name"],
+            },
+        ],
+    });
+
+    // Add items to order object for email
+    const orderForEmail = {
+        ...order.toJSON(),
+        items: items.map((item) => item.toJSON()),
+    };
+
+    // Send email
+    try {
+        await sendBankTransferOrderEmail({
+            user,
+            order: orderForEmail,
+        });
+
+        console.log(
+            `BANK TRANSFER ORDER EMAIL SENT TO: ${user.email}`
+        );
+    } catch (emailError) {
+        console.error(
+            "BANK TRANSFER ORDER EMAIL ERROR:",
+            emailError
+        );
+
+        // Important:
+        // Do not fail the order just because email failed.
+    }
+
+    return {
+        paymentId: payment.id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        amount: orderAmount,
+        currency: "NGN",
+        reference: payment.payment_reference,
+        paymentMethod: "bank_transfer",
+        status: payment.status,
+        alreadyExists,
+    };
+};
+
+
+// ============================================================
 // CLEAR / CLOSE CART AFTER SUCCESSFUL PAYMENT
 // ============================================================
 //
@@ -479,6 +625,87 @@ const completePaidCart = async (
 };
 
 
+exports.confirmBankTransferPayment = async (paymentId) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+        const payment = await Payment.findOne({
+            where: {
+                id: paymentId,
+                payment_method: "bank_transfer",
+                gateway: "bank_transfer",
+            },
+            transaction,
+            lock: transaction.LOCK.UPDATE,
+        });
+
+        if (!payment) {
+            throw new Error("Bank transfer payment not found.");
+        }
+
+        if (payment.status === "successful") {
+            await transaction.commit();
+
+            return {
+                alreadyConfirmed: true,
+                paymentId: payment.id,
+                orderId: payment.order_id,
+            };
+        }
+
+        const order = await Order.findByPk(payment.order_id, {
+            transaction,
+            lock: transaction.LOCK.UPDATE,
+        });
+
+        if (!order) {
+            throw new Error("Order associated with this payment was not found.");
+        }
+
+        // Mark payment as successful
+        payment.status = "successful";
+        payment.paid_at = new Date();
+
+        payment.gateway_response = JSON.stringify({
+            type: "bank_transfer",
+            confirmed_by_admin: true,
+            confirmed_at: new Date(),
+        });
+
+        await payment.save({ transaction });
+        
+        // =================================================
+        // CLEAR / CLOSE CART
+        // =================================================
+
+        await completePaidCart(
+
+            order,
+
+            transaction
+
+        );
+
+        // Mark the order as paid
+        order.payment_status = "paid";
+
+        await order.save({ transaction });
+
+        await transaction.commit();
+
+        return {
+            alreadyConfirmed: false,
+            paymentId: payment.id,
+            orderId: order.id,
+            orderNumber: order.order_number,
+            paymentStatus: "paid",
+        };
+
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
+    }
+};
 // ============================================================
 // VERIFY PAYMENT
 // ============================================================
