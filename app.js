@@ -34,6 +34,7 @@ const adminCustomerRoutes = require("./routes/adminCustomerRoutes");
 const adminContactMessageRoutes = require("./routes/adminContactMessageRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const galleryRoutes = require("./routes/galleryRoutes");
+const customerFeedbackRoutes = require("./routes/customerFeedbackRoutes");
 
 app.use(cors({
     origin: "http://localhost:3000", // React frontend
@@ -112,7 +113,7 @@ app.use("/api/admin/customers", adminCustomerRoutes);
 app.use("/api/admin/contact-messages",adminContactMessageRoutes);
 app.use( "/api/notifications", notificationRoutes);
 app.use("/api/gallery", galleryRoutes);
-
+app.use("/api/feedback", customerFeedbackRoutes);
 
 app.get("/", (req, res) => {
     res.json({

@@ -3,6 +3,20 @@ const cartService = require("../services/cartService");
 
 
 // ============================================================
+// SHARED COOKIE DOMAIN
+// ============================================================
+// In production, set this so the cookie is valid on BOTH
+// theinverterspecialist.com (frontend) and
+// api.theinverterspecialist.com (backend). Locally (dev), we
+// leave it undefined so cookies still work on localhost.
+
+const COOKIE_DOMAIN =
+    process.env.NODE_ENV === "production"
+        ? ".theinverterspecialist.com"
+        : undefined;
+
+
+// ============================================================
 // GET GUEST CART TOKEN
 // ============================================================
 
@@ -34,6 +48,8 @@ exports.register = async (req, res) => {
                 process.env.NODE_ENV === "production",
 
             sameSite: "lax",
+
+            domain: COOKIE_DOMAIN,
 
             maxAge:
                 7 * 24 * 60 * 60 * 1000,
@@ -70,6 +86,8 @@ exports.register = async (req, res) => {
                             "production",
 
                         sameSite: "lax",
+
+                        domain: COOKIE_DOMAIN,
 
                         path: "/"
                     }
@@ -205,6 +223,9 @@ exports.login = async (
                 sameSite:
                     "lax",
 
+                domain:
+                    COOKIE_DOMAIN,
+
                 maxAge:
                     Number(
                         process.env.COOKIE_EXPIRES_IN
@@ -256,6 +277,9 @@ exports.login = async (
 
                         sameSite:
                             "lax",
+
+                        domain:
+                            COOKIE_DOMAIN,
 
                         path:
                             "/"
@@ -371,6 +395,8 @@ exports.logout = async (req, res) => {
                     "production",
 
                 sameSite: "lax",
+
+                domain: COOKIE_DOMAIN,
 
                 path: "/"
 

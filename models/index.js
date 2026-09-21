@@ -14,6 +14,7 @@ const OrderItem = require("./OrderItem");
 const Payment = require("./Payment");
 const Wishlist = require("./Wishlist");
 const Gallery = require('./Gallery')
+const CustomerFeedback = require("./CustomerFeedback");
 
 // Category
 Category.hasMany(Product, {
@@ -214,6 +215,17 @@ Wishlist.belongsTo(Product, {
     foreignKey: "product_id"
 });
 
+// Customer feedback
+User.hasOne(CustomerFeedback, {
+    foreignKey: "user_id",
+    as: "feedback",
+});
+
+CustomerFeedback.belongsTo(User, {
+    foreignKey: "user_id",
+    as: "user",
+});
+
 module.exports = {
     Product,
     Category,
@@ -229,6 +241,7 @@ module.exports = {
     OrderItem,
     Payment,
     Wishlist,
-    Gallery
+    Gallery,
+    CustomerFeedback
 
 };
